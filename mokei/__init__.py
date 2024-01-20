@@ -9,4 +9,4 @@ from .mokei import Mokei, TemplateContext
 from .request import Request
 from .mokeiwebsocket import MokeiWebSocket
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'

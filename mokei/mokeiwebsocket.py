@@ -17,10 +17,11 @@ _MEM = 'μοκιε'
 
 
 class MokeiWebSocket(web.WebSocketResponse):
-    def __init__(self, request: Request, *args, **kwargs):
+    def __init__(self, request: Request, route: 'WebSocketRoute', *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.id = uuid.uuid4()
         self.request = request
+        self._route = route
 
     def __repr__(self):
         return f'<MokeiWebSocket {self.request.remote} {self.id}>'
@@ -29,6 +30,12 @@ class MokeiWebSocket(web.WebSocketResponse):
         # Ensure that "if websocket:" works properly.
         # For some reason bool(inst_of_superclass) evaluates to False
         return True
+
+    async def send_text(self, message: str) -> None:
+        await self._route.send_text(message, self)
+
+    async def send_event(self, event: str, data: JsonDict) -> None:
+        await self._route.send_event(event, data, self)
 
 
 _OnConnectHandler = Callable[[MokeiWebSocket], Awaitable[None]]
@@ -114,6 +121,7 @@ class WebSocketRoute:
             logger.info('Received my_event')
             logger.info(data)
         """
+
         def decorator(handler: _OnEventHandler) -> _OnEventHandler:
             self._onevent_handlers[event].append(handler)
             return handler
@@ -171,7 +179,7 @@ class WebSocketRoute:
             if socket_to_remove in self.sockets:
                 self.sockets.remove(socket_to_remove)
 
-    async def send_event(self, event: str, data: dict, *target: MokeiWebSocket,
+    async def send_event(self, event: str, data: JsonDict, *target: MokeiWebSocket,
                          exclude: Optional[MokeiWebSocket | Iterable[MokeiWebSocket]] = None) -> None:
 
         message = _MEM + json.dumps({'event': event, 'data': data})
