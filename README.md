@@ -1,6 +1,6 @@
 # Mokei
 
-Mokei is a very simple Python web framework built on aiohttp.
+Mokei is a simple asynchronous Python web framework built on aiohttp.
 
 Aiohttp contains a great async web server, with web framework built in,
 but can be complex when compared to other web frameworks.
