@@ -1,4 +1,6 @@
 # .github/workflows/ci-cd.yml
+on:
+  push
 jobs:
   publish-to-pypi:
     name: Upload release to TestPyPI
