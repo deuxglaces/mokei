@@ -36,8 +36,9 @@ class Mokei:
         self._ssl_context = None
         if config.template_dir and isinstance(config.template_dir, str):
             config.template_dir = pathlib.Path(config.template_dir)
-        self._template_dir: Optional[pathlib.Path] = pathlib.Path(config.template_dir) if config.template_dir else None
+        self._template_dir: Optional[pathlib.Path] = config.template_dir
         self._static_dirs: dict[str, pathlib.Path] = {}
+        # list of zero-arg async functions that return None
         self._background_tasks: list[Callable[[], Awaitable[None]]] = []
 
     def _get_default_template_dir(self) -> Optional[pathlib.Path]:
@@ -82,26 +83,21 @@ class Mokei:
                 pass
             return False
 
-        async def no_request_handler(_request: Request, *args, **kwargs):
+        async def handler_with_request(_request: Request, *args, **kwargs):
             return await raw_handler(*args, **kwargs)
 
         if first_param_is_request(raw_handler):
             handler = raw_handler
         else:
-            handler = no_request_handler
+            handler = handler_with_request
+
+        # continue with parameters here?
+
         handler._is_mokei_normalized = True
         return handler
 
-    def _route_handler(self, path: str, http_method: str):
-        def decorator(handler):
-            normalized_handler = self._get_normalized_handler(handler)
-            getattr(self._routes, http_method)(path)(normalized_handler)
-            self._handlers[handler.__name__] = path
-            return handler
-
-        return decorator
-
     def template(self, template_name: str):
+        """Decorator method to decorate routes which use templates."""
         if not self.config.use_templates:
             raise MokeiConfigError('Set Config.use_templates to True to use templates')
         from aiohttp_jinja2 import template
@@ -109,6 +105,19 @@ class Mokei:
         def decorator(handler):
             normalized_handler = self._get_normalized_handler(handler)
             return template(template_name)(normalized_handler)
+
+        return decorator
+
+    def _route_handler(self, path: str, http_method: str):
+        """Generic decorator method for handling any http method
+        Do not call this method directly, but use partialmethod to create methods for handling specific http methods
+        """
+
+        def decorator(handler):
+            normalized_handler = self._get_normalized_handler(handler)
+            getattr(self._routes, http_method)(path)(normalized_handler)
+            self._handlers[handler.__name__] = path
+            return handler
 
         return decorator
 

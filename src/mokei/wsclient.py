@@ -21,7 +21,7 @@ class MokeiWebSocketClient:
         self._ontext_handlers = []
         self._ondisconnect_handlers = []
         self._handlers: dict[str, list] = collections.defaultdict(list)
-        random.seed()
+        self._session: aiohttp.ClientSession | None = None
 
     def _get_backoff(self):
         backoff = self._current_backoff
@@ -81,7 +81,8 @@ class MokeiWebSocketClient:
         return handler
 
     async def connect(self):
-        async with aiohttp.ClientSession() as session:
+        self._session = aiohttp.ClientSession()
+        async with self._session as session:
             while True:
                 try:
                     async with session.ws_connect(self.url) as ws:
@@ -101,6 +102,9 @@ class MokeiWebSocketClient:
                     await self._ondisconnect_handler(self._ws)
                 self._ws = None
                 await asyncio.sleep(self._get_backoff())
+
+    async def close(self):
+        await self._session.close()
 
     async def _send_unsent_messages(self):
         while self._unsent_messages:

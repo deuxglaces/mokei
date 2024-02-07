@@ -17,16 +17,16 @@ _MEM = 'μοκιε'
 
 
 class MokeiWebSocket(web.WebSocketResponse):
-    def __init__(self, request: Request, route: 'WebSocketRoute', *args, **kwargs):
+    def __init__(self, request: Request, route: 'WebSocketRoute', *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.id = uuid.uuid4()
         self.request = request
         self._route = route
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'<MokeiWebSocket {self.request.remote} {self.id}>'
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         # Ensure that "if websocket:" works properly.
         # For some reason bool(inst_of_superclass) evaluates to False
         return True
@@ -42,11 +42,11 @@ _OnConnectHandler = Callable[[MokeiWebSocket], Awaitable[None]]
 _OnDisconnectHandler = Callable[[MokeiWebSocket], Awaitable[None]]
 _OnEventHandler = Callable[[MokeiWebSocket, JsonDict], Awaitable[None]]
 _OnTextHandler = Callable[[MokeiWebSocket, str], Awaitable[None]]
-_OnBinaryHandler = Callable[[MokeiWebSocket], Awaitable[None]]
+_OnBinaryHandler = Callable[[MokeiWebSocket, bytes], Awaitable[None]]
 
 
 class WebSocketRoute:
-    def __init__(self, path):
+    def __init__(self, path) -> None:
         self.path = path
         self._onconnect_handlers: list[_OnConnectHandler] = []
         self._ondisconnect_handlers: list[_OnDisconnectHandler] = []
