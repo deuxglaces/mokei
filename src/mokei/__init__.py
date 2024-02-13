@@ -7,6 +7,8 @@ from .config import Config
 from .exceptions import MokeiException, MokeiConfigError
 from .mokei import Mokei, TemplateContext
 from .request import Request
-from .mokeiwebsocket import MokeiWebSocket
+from .websocket import MokeiWebSocket, MokeiWebSocketRoute
+from .client import MokeiClient
+from .wsclient import MokeiWebSocketClient
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'

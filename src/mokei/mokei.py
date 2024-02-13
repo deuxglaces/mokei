@@ -12,7 +12,7 @@ from aiohttp_asgi import ASGIResource
 from .config import Config
 from .exceptions import MokeiConfigError
 from .request import Request
-from .mokeiwebsocket import MokeiWebSocket, WebSocketRoute
+from .websocket import MokeiWebSocket, MokeiWebSocketRoute
 from .logging import getLogger
 
 logger = getLogger(__name__)
@@ -70,8 +70,10 @@ class Mokei:
             # this handler has been normalized already - return as is
             return raw_handler
 
-        def first_param_is_request(hndlr) -> bool:
-            sig = inspect.signature(hndlr)
+        sig = inspect.signature(raw_handler)
+        params = sig.parameters
+
+        def first_param_is_request() -> bool:
             try:
                 first_param = next(iter(sig.parameters.items()))
                 # noinspection PyProtectedMember,PyUnresolvedReferences
@@ -83,15 +85,18 @@ class Mokei:
                 pass
             return False
 
-        async def handler_with_request(_request: Request, *args, **kwargs):
-            return await raw_handler(*args, **kwargs)
+        async def normalized_handler(r: Request):
+            kwargs = {key: r.match_info[key] for key in r.match_info if key in params}
+            return await raw_handler(r, **kwargs)
 
-        if first_param_is_request(raw_handler):
-            handler = raw_handler
+        async def normalized_handler_with_request(r: Request):
+            kwargs = {key: r.match_info[key] for key in r.match_info if key in params}
+            return await raw_handler(**kwargs)
+
+        if first_param_is_request():
+            handler = normalized_handler
         else:
-            handler = handler_with_request
-
-        # continue with parameters here?
+            handler = normalized_handler_with_request
 
         handler._is_mokei_normalized = True
         return handler
@@ -200,8 +205,8 @@ class Mokei:
         web.run_app(self._web_app, host=self.config.host, port=self.config.port,
                     ssl_context=self._ssl_context, loop=self._loop)
 
-    def websocketroute(self, path: str) -> WebSocketRoute:
-        socket_route = WebSocketRoute(path)
+    def websocketroute(self, path: str) -> MokeiWebSocketRoute:
+        socket_route = MokeiWebSocketRoute(path)
 
         async def ws(request: Request) -> MokeiWebSocket:
             return await self._handle_websocket(request, socket_route)
@@ -209,7 +214,7 @@ class Mokei:
         self._routes.get(path)(ws)
         return socket_route
 
-    async def _handle_websocket(self, request: Request, socket_route: WebSocketRoute) -> MokeiWebSocket:
+    async def _handle_websocket(self, request: Request, socket_route: MokeiWebSocketRoute) -> MokeiWebSocket:
         """ Called when a new websocket connection is established from a client
         """
         ws = MokeiWebSocket(request)

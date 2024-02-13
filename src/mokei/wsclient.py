@@ -45,8 +45,8 @@ class MokeiWebSocketClient:
                 return
             event = event_data['event']
             data = event_data['data']
-            await asyncio.gather(*handler(ws, data) for handler in self._handlers[event])
-        await asyncio.gather(*(handler(ws, msg) for handler in self._ontext_handlers))
+            await asyncio.gather(*[handler(ws, data) for handler in self._handlers[event]])
+        await asyncio.gather(*[handler(ws, msg) for handler in self._ontext_handlers])
 
     def onconnect(self, handler):
         """Decorator method.

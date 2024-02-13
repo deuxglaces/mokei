@@ -17,7 +17,7 @@ _MEM = 'μοκιε'
 
 
 class MokeiWebSocket(web.WebSocketResponse):
-    def __init__(self, request: Request, route: 'WebSocketRoute', *args, **kwargs) -> None:
+    def __init__(self, request: Request, route: 'MokeiWebSocketRoute', *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.id = uuid.uuid4()
         self.request = request
@@ -38,21 +38,21 @@ class MokeiWebSocket(web.WebSocketResponse):
         await self._route.send_event(event, data, self)
 
 
-_OnConnectHandler = Callable[[MokeiWebSocket], Awaitable[None]]
-_OnDisconnectHandler = Callable[[MokeiWebSocket], Awaitable[None]]
-_OnEventHandler = Callable[[MokeiWebSocket, JsonDict], Awaitable[None]]
-_OnTextHandler = Callable[[MokeiWebSocket, str], Awaitable[None]]
-_OnBinaryHandler = Callable[[MokeiWebSocket, bytes], Awaitable[None]]
+OnConnectHandler = Callable[[MokeiWebSocket], Awaitable[None]]
+OnDisconnectHandler = Callable[[MokeiWebSocket], Awaitable[None]]
+OnEventHandler = Callable[[MokeiWebSocket, JsonDict], Awaitable[None]]
+OnTextHandler = Callable[[MokeiWebSocket, str], Awaitable[None]]
+OnBinaryHandler = Callable[[MokeiWebSocket, bytes], Awaitable[None]]
 
 
-class WebSocketRoute:
+class MokeiWebSocketRoute:
     def __init__(self, path) -> None:
         self.path = path
-        self._onconnect_handlers: list[_OnConnectHandler] = []
-        self._ondisconnect_handlers: list[_OnDisconnectHandler] = []
-        self._ontext_handlers: list[_OnTextHandler] = []
-        self._onbinary_handlers: list[_OnBinaryHandler] = []
-        self._onevent_handlers: dict[str, list[_OnEventHandler]] = collections.defaultdict(list)
+        self._onconnect_handlers: list[OnConnectHandler] = []
+        self._ondisconnect_handlers: list[OnDisconnectHandler] = []
+        self._ontext_handlers: list[OnTextHandler] = []
+        self._onbinary_handlers: list[OnBinaryHandler] = []
+        self._onevent_handlers: dict[str, list[OnEventHandler]] = collections.defaultdict(list)
         self.sockets: set[MokeiWebSocket] = set()
 
     async def _onconnect_handler(self, ws: MokeiWebSocket) -> None:
@@ -113,7 +113,7 @@ class WebSocketRoute:
         self._ondisconnect_handlers.append(handler)
         return handler
 
-    def on(self, event: str) -> Callable[[_OnEventHandler], _OnEventHandler]:
+    def on(self, event: str) -> Callable[[OnEventHandler], OnEventHandler]:
         """Decorator for mokei events
 
         @yourwebsocketroute.on('my_event')
@@ -122,17 +122,17 @@ class WebSocketRoute:
             logger.info(data)
         """
 
-        def decorator(handler: _OnEventHandler) -> _OnEventHandler:
+        def decorator(handler: OnEventHandler) -> OnEventHandler:
             self._onevent_handlers[event].append(handler)
             return handler
 
         return decorator
 
-    def ontext(self, handler: _OnTextHandler) -> _OnTextHandler:
+    def ontext(self, handler: OnTextHandler) -> OnTextHandler:
         self._ontext_handlers.append(handler)
         return handler
 
-    def onbinary(self, handler: _OnBinaryHandler) -> _OnBinaryHandler:
+    def onbinary(self, handler: OnBinaryHandler) -> OnBinaryHandler:
         self._onbinary_handlers.append(handler)
         return handler
 
