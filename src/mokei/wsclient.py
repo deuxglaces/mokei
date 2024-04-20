@@ -98,6 +98,9 @@ class MokeiWebSocketClient:
                                 break
                 except aiohttp.ClientConnectorError:
                     pass
+                except RuntimeError:
+                    raise RuntimeError
+
                 if self._ws:
                     await self._ondisconnect_handler(self._ws)
                 self._ws = None

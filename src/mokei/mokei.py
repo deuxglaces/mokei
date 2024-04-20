@@ -66,6 +66,9 @@ class Mokei:
 
     @staticmethod
     def _get_normalized_handler(raw_handler):
+        if not asyncio.iscoroutinefunction(raw_handler):
+            raise TypeError('handler must be an async function')
+
         if getattr(raw_handler, '_is_mokei_normalized', False):
             # this handler has been normalized already - return as is
             return raw_handler
@@ -119,6 +122,8 @@ class Mokei:
         """
 
         def decorator(handler):
+            if not asyncio.iscoroutinefunction(handler):
+                raise TypeError('Handler must be a async function')
             normalized_handler = self._get_normalized_handler(handler)
             getattr(self._routes, http_method)(path)(normalized_handler)
             self._handlers[handler.__name__] = path
@@ -217,7 +222,7 @@ class Mokei:
     async def _handle_websocket(self, request: Request, socket_route: MokeiWebSocketRoute) -> MokeiWebSocket:
         """ Called when a new websocket connection is established from a client
         """
-        ws = MokeiWebSocket(request)
+        ws = MokeiWebSocket(request, socket_route)
         try:
             await ws.prepare(request)
         except ConnectionResetError:

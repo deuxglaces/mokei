@@ -1,4 +1,5 @@
 /**
+ * Version 0.2.3
  * Websocket handler class for use with Python Mokei backend.
  *
  * Preferred usage is to instantiate from mokeiWebsocketExchange to avoid duplicates.
@@ -24,6 +25,7 @@ export class MokeiWebSocket {
      */
     constructor(url) {
         this.url = url;
+        this._connectCalled = false;
         this._onconnect = [];
         this._ondisconnect = [];
         this._ontext = [];
@@ -106,9 +108,18 @@ export class MokeiWebSocket {
          * Event callbacks may be registered before or after connect() is called,
          * but some events may be missed if registering after calling connect()
          */
-        if (this._ws !== null) {
-            return;
+        if (!this._connectCalled) {
+            this._connectCalled = true;
+            this._connect();
         }
+    }
+
+    _connect() {
+        /**
+         * Internal method to handle actually creating and connecting to the websocket
+         * This is called only once by this.connect (and not called on subsequent calls to this.connect)
+         * This is also called again when a disconnect occurs, after a given back-off
+         */
         this._ws = new WebSocket(this.url);
         this._ws.onopen = () => {
             this.connected = true;
@@ -122,7 +133,7 @@ export class MokeiWebSocket {
                 this._ondisconnect.forEach(handler => handler());
             }
             this.connected = false;
-            setTimeout(this.connect.bind(this), this._backoff);
+            setTimeout(this._connect.bind(this), this._backoff);
             this._backoff = Math.min(this._backoff * 2 + Math.random() * 1000, this.maxBackoff);
         }
     }

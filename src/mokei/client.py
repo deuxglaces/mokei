@@ -1,7 +1,7 @@
 from typing import Optional
 
 import aiohttp
-from aiohttp.client import ClientSession, ClientResponse
+from aiohttp.client import ClientSession
 from yarl import URL
 
 from .datatypes import JsonDict
@@ -24,20 +24,20 @@ class MokeiClient:
         if not keep_cookies:
             self.cookies.clear()
 
-    async def post_form_data(self, url: str | URL, data: dict) -> ClientResponse:
+    async def post_form_data(self, url: str | URL, data: dict) -> tuple[str, int]:
         form_data = aiohttp.FormData()
         for key, value in data.items():
             form_data.add_field(key, value)
         async with self._session.post(url, data, headers=self.headers, verify_ssl=self.verify_ssl) as response:
-            return response
+            return await response.text(), response.status
 
-    async def post_json(self, url: str | URL, jsondict: JsonDict) -> ClientResponse:
+    async def post_json(self, url: str | URL, jsondict: JsonDict) -> tuple[str, int]:
         async with self._session.post(url, json=jsondict, headers=self.headers, verify_ssl=self.verify_ssl) as response:
-            return response
+            return await response.text(), response.status
 
-    async def get(self, url: str | URL) -> ClientResponse:
+    async def get(self, url: str | URL) -> tuple[str, int]:
         async with self._session.get(url, headers=self.headers, verify_ssl=self.verify_ssl) as response:
-            return response
+            return await response.text(), response.status
 
     def set_header(self, header_name: str, header_value: str) -> None:
         self.headers[header_name] = header_value
