@@ -40,7 +40,7 @@ class MokeiWebSocketClient:
 
     async def _ontext_handler(self, ws, msg: str):
         if msg.startswith(_MEM):
-            event_data = json.loads(msg)
+            event_data = json.loads(msg[len(_MEM):])
             if 'event' not in event_data or 'data' not in event_data:
                 return
             event = event_data['event']
