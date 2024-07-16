@@ -96,10 +96,8 @@ class MokeiWebSocketClient:
                                 await self._ontext_handler(ws, msg.data)
                             elif msg.type == aiohttp.WSMsgType.ERROR:
                                 break
-                except aiohttp.ClientConnectorError:
+                except aiohttp.ClientError:
                     pass
-                except RuntimeError:
-                    raise RuntimeError
 
                 if self._ws:
                     await self._ondisconnect_handler(self._ws)
