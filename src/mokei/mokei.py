@@ -239,7 +239,10 @@ class Mokei:
                 # noinspection PyProtectedMember
                 await socket_route._onbinary_handler(ws, msg.data)
 
-        socket_route.sockets.remove(ws)
+        try:
+            socket_route.sockets.remove(ws)
+        except KeyError:
+            pass  # already removed
         # noinspection PyProtectedMember
         await self._loop.create_task(socket_route._ondisconnect_handler(ws))
         return ws
