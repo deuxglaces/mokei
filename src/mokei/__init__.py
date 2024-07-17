@@ -11,4 +11,4 @@ from .websocket import MokeiWebSocket, MokeiWebSocketRoute
 from .client import MokeiClient
 from .wsclient import MokeiWebSocketClient
 
-__version__ = '0.2.5'
+__version__ = '0.2.6'
