@@ -1,5 +1,5 @@
 /**
- * Version 0.2.7
+ * Version 0.2.10
  * Websocket handler class for use with Python Mokei backend.
  *
  * Preferred usage is to instantiate from mokeiWebsocketExchange to avoid duplicates.

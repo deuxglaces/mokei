@@ -44,7 +44,7 @@ class Mokei:
     def _get_default_template_dir(self) -> Optional[pathlib.Path]:
         for dirname in ['template', 'templates']:
             templatedir = pathlib.Path(dirname)
-            if templatedir.exists():
+            if templatedir.exists() and templatedir.is_dir():
                 return templatedir
 
     def _get_default_static_dir(self) -> Optional[pathlib.Path]:
@@ -225,19 +225,20 @@ class Mokei:
         ws = MokeiWebSocket(request, socket_route)
         try:
             await ws.prepare(request)
+
+            socket_route.sockets.add(ws)
+            # noinspection PyProtectedMember
+            await socket_route._onconnect_handler(ws)
+            async for msg in ws:
+                msg: WSMessage
+                if msg.type is WSMsgType.TEXT:
+                    # noinspection PyProtectedMember
+                    await socket_route._ontext_handler(ws, msg.data)
+                elif msg.type is WSMsgType.BINARY:
+                    # noinspection PyProtectedMember
+                    await socket_route._onbinary_handler(ws, msg.data)
         except ConnectionResetError:
             return ws
-        socket_route.sockets.add(ws)
-        # noinspection PyProtectedMember
-        await socket_route._onconnect_handler(ws)
-        async for msg in ws:
-            msg: WSMessage
-            if msg.type is WSMsgType.TEXT:
-                # noinspection PyProtectedMember
-                await socket_route._ontext_handler(ws, msg.data)
-            elif msg.type is WSMsgType.BINARY:
-                # noinspection PyProtectedMember
-                await socket_route._onbinary_handler(ws, msg.data)
 
         try:
             socket_route.sockets.remove(ws)

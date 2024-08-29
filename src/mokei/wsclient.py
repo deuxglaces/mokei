@@ -17,8 +17,11 @@ class MokeiWebSocketClient:
         self._current_backoff = self._default_backoff
         self._max_backoff = 15.0
         self._unsent_messages = collections.deque()
+        self._unsent_binary = collections.deque()
         self._onconnect_handlers = []
         self._ontext_handlers = []
+        self._onbinary_handlers = []
+        self._onerror_handlers = []
         self._ondisconnect_handlers = []
         self._handlers: dict[str, list] = collections.defaultdict(list)
         self._session: aiohttp.ClientSession | None = None
@@ -32,21 +35,28 @@ class MokeiWebSocketClient:
     def _reset_backoff(self):
         self._current_backoff = self._default_backoff
 
-    async def _onconnect_handler(self, ws):
-        await asyncio.gather(*(handler(ws) for handler in self._onconnect_handlers))
+    async def _onconnect_handler(self):
+        await asyncio.gather(*(handler() for handler in self._onconnect_handlers))
 
-    async def _ondisconnect_handler(self, ws):
-        await asyncio.gather(*(handler(ws) for handler in self._ondisconnect_handlers))
+    async def _ondisconnect_handler(self):
+        await asyncio.gather(*(handler() for handler in self._ondisconnect_handlers))
 
-    async def _ontext_handler(self, ws, msg: str):
+    async def _ontext_handler(self, msg: str):
         if msg.startswith(_MEM):
             event_data = json.loads(msg[len(_MEM):])
             if 'event' not in event_data or 'data' not in event_data:
                 return
             event = event_data['event']
             data = event_data['data']
-            await asyncio.gather(*[handler(ws, data) for handler in self._handlers[event]])
-        await asyncio.gather(*[handler(ws, msg) for handler in self._ontext_handlers])
+            await asyncio.gather(*[handler(data) for handler in self._handlers[event]])
+        else:
+            await asyncio.gather(*[handler(msg) for handler in self._ontext_handlers])
+
+    async def _onbinary_handler(self, msg: bytes):
+        await asyncio.gather(*[handler(msg) for handler in self._onbinary_handlers])
+
+    async def _onerror_handler(self, data):
+        await asyncio.gather(*[handler(data) for handler in self._onerror_handlers])
 
     def onconnect(self, handler):
         """Decorator method.
@@ -88,19 +98,21 @@ class MokeiWebSocketClient:
                     async with session.ws_connect(self.url) as ws:
                         self._reset_backoff()
                         self._ws = ws
-                        await self._onconnect_handler(ws)
+                        await self._onconnect_handler()
                         await self._send_unsent_messages()
                         async for msg in ws:
                             msg: WSMessage
                             if msg.type == aiohttp.WSMsgType.TEXT:
-                                await self._ontext_handler(ws, msg.data)
+                                await self._ontext_handler(msg.data)
+                            elif msg.type == aiohttp.WSMsgType.BINARY:
+                                await self._onbinary_handler(msg.data)
                             elif msg.type == aiohttp.WSMsgType.ERROR:
-                                break
+                                await self._onerror_handler(msg.data)
                 except aiohttp.ClientError:
                     pass
 
                 if self._ws:
-                    await self._ondisconnect_handler(self._ws)
+                    await self._ondisconnect_handler()
                 self._ws = None
                 await asyncio.sleep(self._get_backoff())
 
@@ -117,12 +129,34 @@ class MokeiWebSocketClient:
             except ConnectionResetError:
                 break
 
-    async def send(self, text: str):
+    async def _send_unsent_binary(self):
+        while self._unsent_binary:
+            try:
+                if not self._ws:
+                    break
+                await self._ws.send_bytes(self._unsent_binary[0])
+                self._unsent_binary.popleft()
+            except ConnectionResetError:
+                break
+
+    async def send_text(self, text: str):
         self._unsent_messages.append(text)
         await self._send_unsent_messages()
 
+    async def send_binary(self, data: bytes):
+        self._unsent_binary.append(data)
+        await self._send_unsent_binary()
+
     def ontext(self, handler):
         self._ontext_handlers.append(handler)
+        return handler
+
+    def onbinary(self, handler):
+        self._onbinary_handlers.append(handler)
+        return handler
+
+    def onerror(self, handler):
+        self._onerror_handlers.append(handler)
         return handler
 
     def on(self, event: str):
