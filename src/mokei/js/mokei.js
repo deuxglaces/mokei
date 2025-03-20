@@ -1,5 +1,7 @@
+// noinspection JSUnusedGlobalSymbols
+
 /**
- * Version 0.2.10
+ * Version 0.2.11
  * Websocket handler class for use with Python Mokei backend.
  *
  * Preferred usage is to instantiate from mokeiWebsocketExchange to avoid duplicates.
@@ -38,15 +40,16 @@ export class MokeiWebSocket {
         this.maxBackoff = 10000;
         this._backoff = this.defaultBackoff;
         this._ws = null;
+        this._manuallyClosed = false;
     }
 
     _handleMessage(message) {
         if (message.slice(0, MEM.length) === MEM) {
             const eventObj = JSON.parse(message.slice(MEM.length));
-            if (eventObj.hasOwnProperty('event') && eventObj.hasOwnProperty('data')) {
+            if (Object.prototype.hasOwnProperty.call(eventObj, 'event') && Object.prototype.hasOwnProperty.call(eventObj, 'data')) {
                 const eventType = eventObj.event;
                 const eventData = eventObj.data;
-                if (this._onevent.hasOwnProperty(eventType)) {
+                if (Object.prototype.hasOwnProperty.call(this._onevent, eventType)) {
                     this._onevent[eventType].forEach(handler => handler(eventData));
                 }
             }
@@ -96,7 +99,7 @@ export class MokeiWebSocket {
     }
 
     on(event, callback) {
-        if (!this._onevent.hasOwnProperty(event)) {
+        if (!Object.prototype.hasOwnProperty.call(this._onevent, event)) {
             this._onevent[event] = [];
         }
         this._onevent[event].push(callback);
@@ -112,6 +115,11 @@ export class MokeiWebSocket {
             this._connectCalled = true;
             this._connect();
         }
+    }
+
+    close() {
+        this._manuallyClosed = true;
+        this._ws.close();
     }
 
     _connect() {
@@ -133,7 +141,9 @@ export class MokeiWebSocket {
                 this._ondisconnect.forEach(handler => handler());
             }
             this.connected = false;
-            setTimeout(this._connect.bind(this), this._backoff);
+            if (!this._manuallyClosed) {
+                setTimeout(this._connect.bind(this), this._backoff);
+            }
             this._backoff = Math.min(this._backoff * 2 + Math.random() * 1000, this.maxBackoff);
         }
     }
@@ -145,7 +155,7 @@ class MokeiSocketExchange {
     }
 
     getWebSocket(url) {
-        if (!this.websockets.hasOwnProperty(url)) {
+        if (!Object.prototype.hasOwnProperty.call(this.websockets, url)) {
             this.websockets[url] = new MokeiWebSocket(url);
         }
         return this.websockets[url];

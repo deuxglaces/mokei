@@ -9,8 +9,9 @@ from aiohttp import web, WSMessage, WSMsgType
 from jinja2 import FileSystemLoader
 from aiohttp_asgi import ASGIResource
 
-from .config import Config
+from .config import MokeiConfig
 from .exceptions import MokeiConfigError
+from ._middlewares import mokei_resp_type_middleware, convert_to_mokei_request
 from .request import Request
 from .websocket import MokeiWebSocket, MokeiWebSocketRoute
 from .logging import getLogger
@@ -23,9 +24,9 @@ TemplateContext = dict[str, Any]
 class Mokei:
     def __init__(
             self,
-            config: Optional[Config] = None,
+            config: Optional[MokeiConfig] = None,
             loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
-        config = config or Config()
+        config = config or MokeiConfig()
         self.config = config
         self._loop = loop or asyncio.new_event_loop()
         self._web_app: Optional[web.Application] = None
@@ -40,20 +41,54 @@ class Mokei:
         self._static_dirs: dict[str, pathlib.Path] = {}
         # list of zero-arg async functions that return None
         self._background_tasks: list[Callable[[], Awaitable[None]]] = []
+        self._middlewares = []
 
-    def _get_default_template_dir(self) -> Optional[pathlib.Path]:
+    @staticmethod
+    def _get_default_template_dir() -> Optional[pathlib.Path]:
+        """Return the default template directory
+        if there is a directory called "templates"
+            then return the pathlib.Path object for that directory
+        otherwise, return None
+        """
         for dirname in ['template', 'templates']:
             templatedir = pathlib.Path(dirname)
             if templatedir.exists() and templatedir.is_dir():
                 return templatedir
 
-    def _get_default_static_dir(self) -> Optional[pathlib.Path]:
+    @staticmethod
+    def _get_default_static_dir() -> Optional[pathlib.Path]:
+        """Return the default static directory
+        If there is a directory called "static" or "public",
+            then return the pathlib.Path object for that directory
+        otherwise, return None
+        """
         for dirname in ['static', 'public']:
             staticdir = pathlib.Path(dirname)
             if staticdir.exists():
-                self.set_static_dir(f'/{dirname}', staticdir)
+                return staticdir
+
+    def middleware(self, fn):
+        """Decorator for functions to be registered as middleware. E.g.:
+        app = Mokei()
+
+        @app.middleware
+        async def my_middleware(request, handler):
+            request = do_something_to_modify_request(request)
+            do_something_else()
+            response = await handler(request)
+            response = do_something_to_modify_response(response)
+        """
+        fn = web.middleware(fn)
+        self._middlewares.append(fn)
 
     def redirect(self, target):
+        """Method to send a redirect, rather than a response. E.g.:
+        app = Mokei()
+
+        @app.get('/old_endpoint')
+        async def redirect_to_new_endpoint():
+            app.redirect('/new_endpoint')
+        """
         if isinstance(target, str):
             if target.startswith('/'):
                 raise web.HTTPFound(target)
@@ -66,6 +101,7 @@ class Mokei:
 
     @staticmethod
     def _get_normalized_handler(raw_handler):
+        """Allow Mokei handlers to be defined with or without the first "request" parameter"""
         if not asyncio.iscoroutinefunction(raw_handler):
             raise TypeError('handler must be an async function')
 
@@ -77,21 +113,17 @@ class Mokei:
         params = sig.parameters
 
         def first_param_is_request() -> bool:
-            try:
-                first_param = next(iter(sig.parameters.items()))
-                # noinspection PyProtectedMember,PyUnresolvedReferences
-                if (
-                        first_param[0] == 'request' and first_param[1].annotation is inspect._empty
-                        or first_param[1].annotation is Request):
+            for param_name, param in params.items():
+                if (param_name == 'request' and param.annotation is param.empty) or param.annotation is Request:
                     return True
-            except StopIteration:
-                pass
             return False
 
+        @functools.wraps(raw_handler)
         async def normalized_handler(r: Request):
             kwargs = {key: r.match_info[key] for key in r.match_info if key in params}
             return await raw_handler(r, **kwargs)
 
+        @functools.wraps(raw_handler)
         async def normalized_handler_with_request(r: Request):
             kwargs = {key: r.match_info[key] for key in r.match_info if key in params}
             return await raw_handler(**kwargs)
@@ -105,7 +137,15 @@ class Mokei:
         return handler
 
     def template(self, template_name: str):
-        """Decorator method to decorate routes which use templates."""
+        """Decorator method to decorate routes which use templates.
+
+        The handler function should return a dict containing the Jinja2 context
+        E.g.:
+        @app.get('/')
+        @app.template('index.html') # this should exist in the templates directory
+        async def serve_index():
+            return {'context1': 'value1', 'context2': 'value2'}
+        """
         if not self.config.use_templates:
             raise MokeiConfigError('Set Config.use_templates to True to use templates')
         from aiohttp_jinja2 import template
@@ -139,6 +179,15 @@ class Mokei:
     put = functools.partialmethod(_route_handler, http_method='put')
 
     def background_task(self, fn):
+        """Decorator method to register background tasks. E.g.
+        app = Mokei()
+
+        @app.background_task
+        async def do_something_every_24_hours():
+            while True:
+                await asyncio.sleep(86400.0)
+                await do_something()
+        """
         self._background_tasks.append(fn)
         return fn
 
@@ -165,7 +214,7 @@ class Mokei:
 
     def run(
             self,
-            config: Optional[Config] = None,
+            config: Optional[MokeiConfig] = None,
             **kwargs,
     ) -> None:
         """kwargs will be passed directly to Config
@@ -175,11 +224,17 @@ class Mokei:
             self.config.__dict__.update(config.__dict__)
         for key, value in kwargs.items():
             setattr(self.config, key, value)
+        if static_dir := self._get_default_static_dir():
+            self.set_static_dir(f'/{static_dir.name}', static_dir)
+
         # create aiohttp web application
         self._web_app = web.Application(middlewares=[])
         self._web_app.add_routes(self._routes)
         self._web_app['state'] = {}
+        self._web_app.middlewares.append(convert_to_mokei_request)
         self._web_app.middlewares.extend(self.config.middlewares)
+        self._web_app.middlewares.extend(self._middlewares)
+        self._web_app.middlewares.append(mokei_resp_type_middleware)
 
         # set up aiohttp_jinja2 templates, if necessary
         if self.config.use_templates:
@@ -188,11 +243,6 @@ class Mokei:
             if self._template_dir is not None:
                 from aiohttp_jinja2 import setup as template_setup
                 template_setup(self._web_app, loader=FileSystemLoader(self._template_dir))
-
-        # setup aiohttp_swagger documentation
-        if self.config.use_swagger:
-            from aiohttp_swagger import setup_swagger
-            setup_swagger(self._web_app)
 
         # load certificates, if available
         if self.config.certfile is not None:
@@ -205,6 +255,11 @@ class Mokei:
         # register any asgi resources
         for asgi_resource in self._asgi_resouces:
             self._web_app.router.register_resource(asgi_resource)
+
+        # setup aiohttp_swagger documentation
+        if self.config.use_swagger:
+            from aiohttp_swagger import setup_swagger
+            setup_swagger(self._web_app)
 
         # run the application
         web.run_app(self._web_app, host=self.config.host, port=self.config.port,

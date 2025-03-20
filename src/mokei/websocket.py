@@ -1,5 +1,7 @@
 import asyncio
 import collections
+import functools
+import inspect
 import json
 from typing import Callable, Awaitable, Optional, Iterable
 import uuid
@@ -92,14 +94,47 @@ class MokeiWebSocketRoute:
         """
         await asyncio.gather(*(handler(ws, message) for handler in self._onbinary_handlers))
 
+    @staticmethod
+    def _get_normalized_handler(raw_handler):
+        """Allow MokeiWebsocketRoute handlers to be defined with or without the first "websocket" parameter"""
+        if not asyncio.iscoroutinefunction(raw_handler):
+            raise TypeError('handler must be an async function')
+
+        if getattr(raw_handler, '_is_mokei_normalized', False):
+            # this handler has been normalized already - return as is
+            return raw_handler
+
+        sig = inspect.signature(raw_handler)
+        params = sig.parameters
+
+        def first_param_is_ws() -> bool:
+            for param_name, param in params.items():
+                if ((param_name in ('ws', 'websocket') and param.annotation is param.empty)
+                        or param.annotation is MokeiWebSocket):
+                    return True
+            return False
+
+        @functools.wraps(raw_handler)
+        async def normalized_handler_with_ws(_ws: MokeiWebSocket, *args, **kwargs) -> None:
+            return await raw_handler(*args, **kwargs)
+
+        if first_param_is_ws():
+            handler = raw_handler
+        else:
+            handler = normalized_handler_with_ws
+
+        handler._is_mokei_normalized = True
+        return handler
+
     def onconnect(self, handler):
         """Decorator for async functions to be run when a new websocket connection is received
 
         @yourwebsocketroute.onconnect
-        async def send_welcome_message(websocket: Websocket):
-            logger.info(f'New connection from {websocket.remote}'
+        async def send_welcome_message(websocket: MokeiWebsocket):
+            logger.info(f'New connection from {websocket.request.remote}'
             await websocket.send_text('Welcome!')
         """
+        handler = self._get_normalized_handler(handler)
         self._onconnect_handlers.append(handler)
         return handler
 
@@ -107,9 +142,10 @@ class MokeiWebSocketRoute:
         """Decorator for async functions to be run when a websocket connection is closed
 
         @yourwebsocketroute.ondisconnect
-        async def send_welcome_message(websocket: Websocket):
-            logger.info('Websocket from %s disconnected', websocket.remote)
+        async def send_welcome_message(websocket: MokeiWebsocket):
+            logger.info('Websocket from %s disconnected', websocket.request.remote)
         """
+        handler = self._get_normalized_handler(handler)
         self._ondisconnect_handlers.append(handler)
         return handler
 
@@ -123,16 +159,19 @@ class MokeiWebSocketRoute:
         """
 
         def decorator(handler: OnEventHandler) -> OnEventHandler:
+            handler = self._get_normalized_handler(handler)
             self._onevent_handlers[event].append(handler)
             return handler
 
         return decorator
 
     def ontext(self, handler: OnTextHandler) -> OnTextHandler:
+        handler = self._get_normalized_handler(handler)
         self._ontext_handlers.append(handler)
         return handler
 
     def onbinary(self, handler: OnBinaryHandler) -> OnBinaryHandler:
+        handler = self._get_normalized_handler(handler)
         self._onbinary_handlers.append(handler)
         return handler
 
