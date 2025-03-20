@@ -4,6 +4,7 @@ import inspect
 import pathlib
 import ssl
 from typing import Optional, Callable, Any, Awaitable
+from logging import getLogger
 
 from aiohttp import web, WSMessage, WSMsgType
 from jinja2 import FileSystemLoader
@@ -14,7 +15,6 @@ from .exceptions import MokeiConfigError
 from ._middlewares import mokei_resp_type_middleware, convert_to_mokei_request
 from .request import Request
 from .websocket import MokeiWebSocket, MokeiWebSocketRoute
-from .logging import getLogger
 
 logger = getLogger(__name__)
 
@@ -82,13 +82,14 @@ class Mokei:
         self._middlewares.append(fn)
 
     def redirect(self, target):
+        # noinspection GrazieInspection
         """Method to send a redirect, rather than a response. E.g.:
-        app = Mokei()
+                app = Mokei()
 
-        @app.get('/old_endpoint')
-        async def redirect_to_new_endpoint():
-            app.redirect('/new_endpoint')
-        """
+                @app.get('/old_endpoint')
+                async def redirect_to_new_endpoint():
+                    app.redirect('/new_endpoint')
+                """
         if isinstance(target, str):
             if target.startswith('/'):
                 raise web.HTTPFound(target)
@@ -160,7 +161,6 @@ class Mokei:
         """Generic decorator method for handling any http method
         Do not call this method directly, but use partialmethod to create methods for handling specific http methods
         """
-
         def decorator(handler):
             if not asyncio.iscoroutinefunction(handler):
                 raise TypeError('Handler must be a async function')

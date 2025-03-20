@@ -2,12 +2,13 @@ import dataclasses
 import pathlib
 
 import aiohttp.web_response
-from aiohttp import web
+import aiohttp.web
+import pydantic
 
 from .serializer import Serializer
 from .request import Request
 
-middleware = web.middleware
+middleware = aiohttp.web.middleware
 serializer = Serializer()
 
 
@@ -43,7 +44,7 @@ async def mokei_resp_type_middleware(request, handler):
         if not resp.exists():
             raise aiohttp.web.HTTPNotFound()
         with open(resp, mode='rb') as file:
-            file_resp = web.Response(
+            file_resp = aiohttp.web.Response(
                 body=file.read(),
                 headers={
                     'Content-Disposition': f'attachment; filename="{resp.name}"',
@@ -51,9 +52,16 @@ async def mokei_resp_type_middleware(request, handler):
                 }
             )
         resp = file_resp
+    elif isinstance(resp, pydantic.BaseModel):
+        resp = aiohttp.web.Response(
+            body=resp.model_dump_json(),
+            headers={
+                'Content-Type': 'application/json',
+            }
+        )
     elif isinstance(resp, dict):
-        resp = web.json_response(resp, status=status)
+        resp = aiohttp.web.json_response(resp, status=status)
     elif isinstance(resp, str):
-        resp = web.Response(body=resp, status=status)
+        resp = aiohttp.web.Response(body=resp, status=status)
     resp.headers.setdefault('Server', 'Server')
     return resp

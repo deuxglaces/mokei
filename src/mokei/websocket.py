@@ -3,14 +3,15 @@ import collections
 import functools
 import inspect
 import json
-from typing import Callable, Awaitable, Optional, Iterable
 import uuid
+from typing import Callable, Awaitable, Optional, Iterable
+from logging import getLogger
 
+import pydantic
 from aiohttp import web
 
-from .datatypes import JsonDict
+from .datatypes import JsonDict, JsonArray
 from .request import Request
-from .logging import getLogger
 
 logger = getLogger(__name__)
 
@@ -218,10 +219,31 @@ class MokeiWebSocketRoute:
             if socket_to_remove in self.sockets:
                 self.sockets.remove(socket_to_remove)
 
-    async def send_event(self, event: str, data: JsonDict, *target: MokeiWebSocket,
-                         exclude: Optional[MokeiWebSocket | Iterable[MokeiWebSocket]] = None) -> None:
+    async def send(self, obj: JsonDict | JsonArray | str | pydantic.BaseModel, *target: MokeiWebSocket,
+                   exclude: Optional[MokeiWebSocket | Iterable[MokeiWebSocket]] = None) -> None:
+        if isinstance(obj, dict) or isinstance(obj, list):
+            await self.send_json(obj, *target, exclude=exclude)
+        elif isinstance(obj, str):
+            await self.send_text(obj, *target, exclude=exclude)
+        elif isinstance(obj, pydantic.BaseModel):
+            await self.send_model(obj, *target, exclude=exclude)
 
-        message = _MEM + json.dumps({'event': event, 'data': data})
+    async def send_json(self, data: JsonDict | JsonArray, *target: MokeiWebSocket,
+                        exclude: Optional[MokeiWebSocket | Iterable[MokeiWebSocket]] = None) -> None:
+        message = json.dumps(data)
+        await self.send_text(message, *target, exclude=exclude)
+
+    async def send_model(self, model: pydantic.BaseModel, *target: MokeiWebSocket,
+                         exclude: Optional[MokeiWebSocket | Iterable[MokeiWebSocket]] = None) -> None:
+        message = model.model_dump_json()
+        await self.send_text(message, *target, exclude=exclude)
+
+    async def send_event(self, event: str, data: JsonDict | JsonArray | pydantic.BaseModel, *target: MokeiWebSocket,
+                         exclude: Optional[MokeiWebSocket | Iterable[MokeiWebSocket]] = None) -> None:
+        if isinstance(event, pydantic.BaseModel):
+            message = _MEM + json.dumps({'event': event, 'data': data.model_dump(mode='json')})
+        else:
+            message = _MEM + json.dumps({'event': event, 'data': data})
 
         await self.send_text(message, *target, exclude=exclude)
 

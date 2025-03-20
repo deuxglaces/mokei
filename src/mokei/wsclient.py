@@ -68,7 +68,7 @@ class MokeiWebSocketClient:
         client = MokeiWebSocketClient('https://someurl.com')
 
         @client.onconnect
-        async def connectionhandler(socket: mokei.WebSocket) -> None:
+        async def connectionhandler() -> None:
             logger.info(f'New connection from {socket.request.remote}')
         """
         self._onconnect_handlers.append(handler)
@@ -84,7 +84,7 @@ class MokeiWebSocketClient:
         client = MokeiWebSocketClient('https://someurl.com')
 
         @client.ondisconnect
-        async def disconnecthandler(socket: mokei.WebSocket) -> None:
+        async def disconnecthandler() -> None:
             logger.info(f'Lost connection to {socket.request.remote}')
         """
         self._ondisconnect_handlers.append(handler)
