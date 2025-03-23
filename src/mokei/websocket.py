@@ -40,6 +40,23 @@ class MokeiWebSocket(web.WebSocketResponse):
     async def send_event(self, event: str, data: JsonDict) -> None:
         await self._route.send_event(event, data, self)
 
+    async def send_model(self, model: pydantic.BaseModel) -> None:
+        message = model.model_dump_json()
+        await self.send_text(message)
+
+    # noinspection PyMethodOverriding
+    async def send_json(self, data: JsonDict | JsonArray) -> None:
+        message = json.dumps(data)
+        await self.send_text(message)
+
+    async def send(self, obj: JsonDict | JsonArray | str | pydantic.BaseModel) -> None:
+        if isinstance(obj, dict) or isinstance(obj, list):
+            await self.send_json(obj)
+        elif isinstance(obj, str):
+            await self.send_text(obj)
+        elif isinstance(obj, pydantic.BaseModel):
+            await self.send_model(obj)
+
 
 OnConnectHandler = Callable[[MokeiWebSocket], Awaitable[None]]
 OnDisconnectHandler = Callable[[MokeiWebSocket], Awaitable[None]]
