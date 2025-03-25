@@ -11,6 +11,7 @@ class MokeiConfig:
     keyfile: Optional[pathlib.Path] = None
     password: Optional[Callable[[], str | bytes | bytearray] | str | bytes | bytearray] = None
     use_swagger: bool = True
+    swagger_api_base_url: str = None
     use_templates: bool = True
     middlewares: list = dataclasses.field(default_factory=list)
     template_dir: Optional[str | pathlib.Path] = None

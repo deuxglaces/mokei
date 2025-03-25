@@ -259,7 +259,10 @@ class Mokei:
         # setup aiohttp_swagger documentation
         if self.config.use_swagger:
             from aiohttp_swagger import setup_swagger
-            setup_swagger(self._web_app)
+            ss_kwargs = {}
+            if self.config.swagger_api_base_url:
+                ss_kwargs['api_base_url'] = self.config.swagger_api_base_url
+            setup_swagger(self._web_app, **ss_kwargs)
 
         # run the application
         web.run_app(self._web_app, host=self.config.host, port=self.config.port,

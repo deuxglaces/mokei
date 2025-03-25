@@ -12,4 +12,4 @@ from .serializer import Serializer
 from .websocket import MokeiWebSocket, MokeiWebSocketRoute
 from .wsclient import MokeiWebSocketClient
 
-__version__ = '0.2.15'
+__version__ = '0.2.16'
