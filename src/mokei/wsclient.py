@@ -90,12 +90,12 @@ class MokeiWebSocketClient:
         self._ondisconnect_handlers.append(handler)
         return handler
 
-    async def connect(self):
+    async def connect(self, **kwargs):
         self._session = aiohttp.ClientSession()
         async with self._session as session:
             while True:
                 try:
-                    async with session.ws_connect(self.url) as ws:
+                    async with session.ws_connect(self.url, **kwargs) as ws:
                         self._reset_backoff()
                         self._ws = ws
                         await self._onconnect_handler()
