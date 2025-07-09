@@ -21,7 +21,7 @@ _MEM = 'μοκιε'
 
 class MokeiWebSocket(web.WebSocketResponse):
     def __init__(self, request: Request, route: 'MokeiWebSocketRoute', *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs, autoping=False)
         self.id = uuid.uuid4()
         self.request = request
         self._route = route
@@ -33,6 +33,12 @@ class MokeiWebSocket(web.WebSocketResponse):
         # Ensure that "if websocket:" works properly.
         # For some reason bool(inst_of_superclass) evaluates to False
         return True
+
+    async def send_ping(self) -> None:
+        await self._route.send_ping(self)
+
+    async def send_pong(self) -> None:
+        await self._route.send_pong(self)
 
     async def send_text(self, message: str) -> None:
         await self._route.send_text(message, self)
@@ -63,17 +69,27 @@ OnDisconnectHandler = Callable[[MokeiWebSocket], Awaitable[None]]
 OnEventHandler = Callable[[MokeiWebSocket, JsonDict], Awaitable[None]]
 OnTextHandler = Callable[[MokeiWebSocket, str], Awaitable[None]]
 OnBinaryHandler = Callable[[MokeiWebSocket, bytes], Awaitable[None]]
+OnBareHandler = Callable[[MokeiWebSocket], Awaitable[None]]
+
+
+async def _respond_to_ping(ws: MokeiWebSocket):
+    await ws.send_pong()
 
 
 class MokeiWebSocketRoute:
-    def __init__(self, path) -> None:
+    def __init__(self, path, heartbeat: float = 0.0, autopong: bool = True) -> None:
         self.path = path
+        self.heartbeat = heartbeat
         self._onconnect_handlers: list[OnConnectHandler] = []
         self._ondisconnect_handlers: list[OnDisconnectHandler] = []
         self._ontext_handlers: list[OnTextHandler] = []
         self._onbinary_handlers: list[OnBinaryHandler] = []
         self._onevent_handlers: dict[str, list[OnEventHandler]] = collections.defaultdict(list)
+        self._onping_handlers: list[OnBareHandler] = []
+        self._onpong_handlers: list[OnBareHandler] = []
         self.sockets: set[MokeiWebSocket] = set()
+        if autopong:
+            self.onping(_respond_to_ping)
 
     async def _onconnect_handler(self, ws: MokeiWebSocket) -> None:
         """Internal method called when a new websocket connection is received
@@ -111,6 +127,12 @@ class MokeiWebSocketRoute:
         """Internal method called when a websocket receives any binary
         """
         await asyncio.gather(*(handler(ws, message) for handler in self._onbinary_handlers))
+
+    async def _onping_handler(self, ws: MokeiWebSocket) -> None:
+        await asyncio.gather(*(handler(ws) for handler in self._onping_handlers))
+
+    async def _onpong_handler(self, ws: MokeiWebSocket) -> None:
+        await asyncio.gather(*(handler(ws) for handler in self._onpong_handlers))
 
     @staticmethod
     def _get_normalized_handler(raw_handler):
@@ -192,6 +214,90 @@ class MokeiWebSocketRoute:
         handler = self._get_normalized_handler(handler)
         self._onbinary_handlers.append(handler)
         return handler
+
+    def onping(self, handler: OnBareHandler) -> OnBareHandler:
+        handler = self._get_normalized_handler(handler)
+        self._onping_handlers.append(handler)
+        return handler
+
+    def onpong(self, handler: OnBareHandler) -> OnBareHandler:
+        handler = self._get_normalized_handler(handler)
+        self._onpong_handlers.append(handler)
+        return handler
+
+    async def send_ping(self, *target: MokeiWebSocket,
+                        exclude: Optional[MokeiWebSocket | Iterable[MokeiWebSocket]] = None) -> None:
+        exclude = exclude or ()
+
+        if isinstance(exclude, MokeiWebSocket):
+            # harmonize arg "exclude" always to be Iterable[MokeiWebSocket]
+            exclude = (exclude,)
+
+        # create a list of sockets to be removed (for failure) post-send
+        remove_sockets = list()
+
+        # create a set of recipient sockets (target is just an Iterable[WebSocket] at this point)
+        if target:
+            recipient_sockets = {target_socket for target_socket in target}
+        else:
+            # target all sockets in self by default, unless specifically provided in args
+            recipient_sockets = {target_socket for target_socket in self.sockets}
+
+        # remove from recipient_sockets any sockets listed in exclude (affects this one event only)
+        for socket_to_remove in exclude:
+            if socket_to_remove in recipient_sockets:
+                recipient_sockets.remove(socket_to_remove)
+
+        async def send_to_single_ws(_ws: MokeiWebSocket):
+            """Send text to a single websocket
+            """
+            try:
+                await _ws.ping()
+            except ConnectionResetError:
+                # unexpected disconnect from remote side
+                remove_sockets.append(_ws)
+                if _ws in self.sockets:
+                    self.sockets.remove(_ws)
+
+        # send the event
+        await asyncio.gather(*(send_to_single_ws(recipient_socket) for recipient_socket in recipient_sockets))
+
+    async def send_pong(self, *target: MokeiWebSocket,
+                        exclude: Optional[MokeiWebSocket | Iterable[MokeiWebSocket]] = None) -> None:
+        exclude = exclude or ()
+
+        if isinstance(exclude, MokeiWebSocket):
+            # harmonize arg "exclude" always to be Iterable[MokeiWebSocket]
+            exclude = (exclude,)
+
+        # create a list of sockets to be removed (for failure) post-send
+        remove_sockets = list()
+
+        # create a set of recipient sockets (target is just an Iterable[WebSocket] at this point)
+        if target:
+            recipient_sockets = {target_socket for target_socket in target}
+        else:
+            # target all sockets in self by default, unless specifically provided in args
+            recipient_sockets = {target_socket for target_socket in self.sockets}
+
+        # remove from recipient_sockets any sockets listed in exclude (affects this one event only)
+        for socket_to_remove in exclude:
+            if socket_to_remove in recipient_sockets:
+                recipient_sockets.remove(socket_to_remove)
+
+        async def send_to_single_ws(_ws: MokeiWebSocket):
+            """Send text to a single websocket
+            """
+            try:
+                await _ws.pong()
+            except ConnectionResetError:
+                # unexpected disconnect from remote side
+                remove_sockets.append(_ws)
+                if _ws in self.sockets:
+                    self.sockets.remove(_ws)
+
+        # send the event
+        await asyncio.gather(*(send_to_single_ws(recipient_socket) for recipient_socket in recipient_sockets))
 
     async def send_text(self, message: str, *target: MokeiWebSocket,
                         exclude: Optional[MokeiWebSocket | Iterable[MokeiWebSocket]] = None) -> None:

@@ -41,6 +41,8 @@ class Mokei:
         self._static_dirs: dict[str, pathlib.Path] = {}
         # list of zero-arg async functions that return None
         self._background_tasks: list[Callable[[], Awaitable[None]]] = []
+        self._startup_tasks: list[Callable[[], Awaitable[None]]] = []
+        self._shutdown_tasks: list[Callable[[], Awaitable[None]]] = []
         self._middlewares = []
 
     @staticmethod
@@ -159,8 +161,9 @@ class Mokei:
 
     def _route_handler(self, path: str, http_method: str):
         """Generic decorator method for handling any http method
-        Do not call this method directly, but use partialmethod to create methods for handling specific http methods
+        Do not call this method directly. Use partialmethod to create methods for handling specific http methods
         """
+
         def decorator(handler):
             if not asyncio.iscoroutinefunction(handler):
                 raise TypeError('Handler must be a async function')
@@ -179,7 +182,7 @@ class Mokei:
     put = functools.partialmethod(_route_handler, http_method='put')
 
     def background_task(self, fn):
-        """Decorator method to register background tasks. E.g.
+        """Decorator method to register background tasks. E.g.,
         app = Mokei()
 
         @app.background_task
@@ -189,6 +192,14 @@ class Mokei:
                 await do_something()
         """
         self._background_tasks.append(fn)
+        return fn
+
+    def startup_task(self, fn):
+        self._startup_tasks.append(fn)
+        return fn
+
+    def shutdown_task(self, fn):
+        self._shutdown_tasks.append(fn)
         return fn
 
     def set_static_dir(self, prefix: str, dir_path: str | pathlib.Path) -> 'Mokei':
@@ -211,6 +222,10 @@ class Mokei:
 
     def register_asgi_app(self, asgi_app, path: str) -> None:
         self._asgi_resouces = ASGIResource(asgi_app, root_path=path)
+
+    @staticmethod
+    async def _run_tasks(task_list):
+        await asyncio.gather(*(task() for task in task_list))
 
     def run(
             self,
@@ -264,12 +279,27 @@ class Mokei:
                 ss_kwargs['api_base_url'] = self.config.swagger_api_base_url
             setup_swagger(self._web_app, **ss_kwargs)
 
-        # run the application
-        web.run_app(self._web_app, host=self.config.host, port=self.config.port,
-                    ssl_context=self._ssl_context, loop=self._loop)
+        # run the startup tasks
+        asyncio.run(self._run_tasks(self._startup_tasks))
 
-    def websocketroute(self, path: str) -> MokeiWebSocketRoute:
-        socket_route = MokeiWebSocketRoute(path)
+        # run the application
+        try:
+            web.run_app(
+                app=self._web_app,
+                host=self.config.host,
+                port=self.config.port,
+                shutdown_timeout=self.config.shutdown_timeout,
+                ssl_context=self._ssl_context, loop=self._loop,
+                print=logger.debug,
+            )
+        except (KeyboardInterrupt, SystemExit):
+            pass
+        finally:
+            # run the shutdown tasks
+            asyncio.run(self._run_tasks(self._shutdown_tasks))
+
+    def websocketroute(self, path: str, heartbeat: float = 0.0, autopong: bool = True) -> MokeiWebSocketRoute:
+        socket_route = MokeiWebSocketRoute(path, heartbeat=heartbeat, autopong=autopong)
 
         async def ws(request: Request) -> MokeiWebSocket:
             return await self._handle_websocket(request, socket_route)
@@ -281,6 +311,7 @@ class Mokei:
         """ Called when a new websocket connection is established from a client
         """
         ws = MokeiWebSocket(request, socket_route)
+
         try:
             await ws.prepare(request)
 
@@ -289,12 +320,20 @@ class Mokei:
             await socket_route._onconnect_handler(ws)
             async for msg in ws:
                 msg: WSMessage
+                # TODO: handle all message types in the below
                 if msg.type is WSMsgType.TEXT:
                     # noinspection PyProtectedMember
                     await socket_route._ontext_handler(ws, msg.data)
                 elif msg.type is WSMsgType.BINARY:
                     # noinspection PyProtectedMember
                     await socket_route._onbinary_handler(ws, msg.data)
+                elif msg.type is WSMsgType.PING:
+                    # noinspection PyProtectedMember
+                    await socket_route._onping_handler(ws)
+                elif msg.type is WSMsgType.PONG:
+                    # noinspection PyProtectedMember
+                    await socket_route._onpong_handler(ws)
+
         except ConnectionResetError:
             return ws
 

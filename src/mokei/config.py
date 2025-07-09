@@ -16,3 +16,4 @@ class MokeiConfig:
     middlewares: list = dataclasses.field(default_factory=list)
     template_dir: Optional[str | pathlib.Path] = None
     static_dirs: dict[str, str | pathlib.Path] = dataclasses.field(default_factory=dict)
+    shutdown_timeout: float = 5.0
